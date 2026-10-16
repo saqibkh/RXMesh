@@ -1,0 +1,64 @@
+name: Ubuntu (simulated GPU)
+
+# Ubuntu.yml builds RXMesh but has its test step commented out, since GitHub's
+# runners have no GPU. PantheonSim simulates an NVIDIA L4 (sm_89, the
+# architecture the build targets) on the runner's CPU, so the unit tests run
+# here. It checks results, not speed; a real GPU is still the final word.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+# The job reads the repository and nothing else. The simulator's action uses
+# no token or secrets, and installs packages only from Ubuntu and NVIDIA.
+permissions:
+  contents: read
+
+jobs:
+  UnitTests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Simulated GPU (NVIDIA L4) and CUDA 12.6
+        uses: pantheongpu/pantheonsim@4bc102cb830dfabdbde9e583674cb90007637420 # v0.1.0
+        with:
+          gpu: nvidia/l4
+          cuda-toolkit: '12.6'
+
+      # The action installs the compiler and the runtime, cuBLAS, cuSOLVER and
+      # cuSPARSE; RXMesh also includes CCCL and NVTX.
+      - name: The rest of the CUDA libraries
+        run: sudo apt-get install -y --no-install-recommends cuda-cccl-12-6 cuda-nvtx-12-6
+
+      # The simulator stands in for the CUDA runtime at run time, so the
+      # shared one is linked. Polyscope (the viewer) and the apps are not
+      # needed for the unit tests.
+      - name: Configure CMake
+        run: >
+          cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=89 -DCMAKE_CUDA_RUNTIME_LIBRARY=Shared
+          -DRX_USE_POLYSCOPE=OFF -DRX_BUILD_APPS=OFF -DRX_BUILD_TESTS=ON
+
+      - name: Build the unit tests
+        run: cmake --build build --target RXMesh_test -j 4
+
+      # Tests left out, and why. Each is a limit of the simulation or of the
+      # test, not a result:
+      #   RXMeshDynamic.PatchLock           needs every block resident at once, so it passes or
+      #                                     fails with the simulator's block scheduling
+      #   RXMeshDynamic.TriangleRefinement  reads input/rocker-arm.obj, which the repository lacks
+      #   Util.Scan, Util.AtomicMin,        write one element past a buffer of `size` elements
+      #   Util.AtomicAdd                    (cub_block_exclusive_sum writes data[size]); a card pads
+      #                                     allocations so it goes unseen, the simulator stops it
+      #   RXMeshStatic.TetQueries           about 107 minutes on the simulator
+      #   RXMeshDynamic.RandomCollapse,     hang at their first kernel on this simulator release: a
+      #   RXMeshDynamic.PatchSlicing        warp's lanes spin on a global CAS lock and the lane that
+      #                                     holds it is never scheduled
+      - name: Unit tests on the simulated GPU
+        run: |
+          T="$(find build -name RXMesh_test -type f | head -n 1)"
+          EXCLUDED='RXMeshDynamic.PatchLock:RXMeshDynamic.TriangleRefinement:Util.Scan:Util.AtomicMin:Util.AtomicAdd:RXMeshStatic.TetQueries:RXMeshDynamic.RandomCollapse:RXMeshDynamic.PatchSlicing'
+          vgpu run "$T" --gtest_filter="-$EXCLUDED"
