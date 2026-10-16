@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Simulated GPU (NVIDIA L4) and CUDA 12.6
-        uses: pantheongpu/pantheonsim@4bc102cb830dfabdbde9e583674cb90007637420 # v0.1.0
+        uses: pantheongpu/pantheonsim@d055faa30b9770cf62fab74a1e52536bfd0aa768 # PR 385 head
         with:
           gpu: nvidia/l4
           cuda-toolkit: '12.6'
@@ -60,5 +60,5 @@ jobs:
       - name: Unit tests on the simulated GPU
         run: |
           T="$(find build -name RXMesh_test -type f | head -n 1)"
-          EXCLUDED='RXMeshDynamic.PatchLock:RXMeshDynamic.TriangleRefinement:Util.Scan:Util.AtomicMin:Util.AtomicAdd:RXMeshStatic.TetQueries:RXMeshDynamic.RandomCollapse:RXMeshDynamic.PatchSlicing'
+          EXCLUDED='RXMeshDynamic.PatchLock:RXMeshDynamic.TriangleRefinement:Util.Scan:Util.AtomicMin:Util.AtomicAdd:RXMeshStatic.TetQueries'
           vgpu run "$T" --gtest_filter="-$EXCLUDED"
